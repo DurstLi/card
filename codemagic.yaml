@@ -21,7 +21,23 @@ workflows:
             exit 1
           fi
           mkdir -p "$IOS_BUILD_PATH" build/logs
-          unzip -q ios-export.zip -d "$IOS_BUILD_PATH"
+          python3 - "$IOS_BUILD_PATH" <<'PY'
+          import pathlib, shutil, sys, zipfile
+          root = pathlib.Path(sys.argv[1]).resolve()
+          with zipfile.ZipFile('ios-export.zip') as archive:
+              for entry in archive.infolist():
+                  name = entry.filename.replace('\\', '/')
+                  relative = pathlib.PurePosixPath(name)
+                  if relative.is_absolute() or '..' in relative.parts:
+                      raise ValueError('Unsafe ZIP path: ' + name)
+                  target = root.joinpath(*relative.parts)
+                  if entry.is_dir() or name.endswith('/'):
+                      target.mkdir(parents=True, exist_ok=True)
+                  else:
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with archive.open(entry) as source, target.open('wb') as output:
+                          shutil.copyfileobj(source, output)
+          PY
           test -f "$IOS_BUILD_PATH/Unity-iPhone.xcodeproj/project.pbxproj"
           # Windows ZIP files do not preserve executable permissions.
           find "$IOS_BUILD_PATH" -type f -name '*.sh' -exec chmod +x {} +
