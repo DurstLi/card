@@ -1,0 +1,70 @@
+workflows:
+  unity-ios-unsigned:
+    name: Card iOS - unsigned IPA for Sideloadly
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: 16.2
+      vars:
+        IOS_BUILD_PATH: build/ios
+        IPA_OUTPUT_PATH: build/ios-unsigned/Card-unsigned.ipa
+    scripts:
+      - name: Download Xcode export from Git LFS
+        script: |
+          set -euo pipefail
+          git lfs pull --include="ios-export.zip"
+      - name: Unpack Windows Xcode export
+        script: |
+          set -euo pipefail
+          if [ ! -f ios-export.zip ]; then
+            echo "Missing ios-export.zip. Export in Windows Unity, then run tools/Prepare-IosUpload.ps1."
+            exit 1
+          fi
+          mkdir -p "$IOS_BUILD_PATH" build/logs
+          unzip -q ios-export.zip -d "$IOS_BUILD_PATH"
+          test -f "$IOS_BUILD_PATH/Unity-iPhone.xcodeproj/project.pbxproj"
+          # Windows ZIP files do not preserve executable permissions.
+          find "$IOS_BUILD_PATH" -type f -name '*.sh' -exec chmod +x {} +
+          for TOOL_DIR in "$IOS_BUILD_PATH"/Il2CppOutputProject/IL2CPP/build/deploy*; do
+            if [ -d "$TOOL_DIR" ]; then
+              find "$TOOL_DIR" -type f -exec chmod +x {} +
+            fi
+          done
+      - name: Install native dependencies if present
+        script: |
+          set -euo pipefail
+          if [ -f "$IOS_BUILD_PATH/Podfile" ]; then
+            (cd "$IOS_BUILD_PATH" && pod install) 2>&1 | tee build/logs/pods.log
+          fi
+      - name: Build unsigned device app
+        script: |
+          set -euo pipefail
+          PROJECT_ARGS=(-project "$IOS_BUILD_PATH/Unity-iPhone.xcodeproj")
+          if [ -d "$IOS_BUILD_PATH/Unity-iPhone.xcworkspace" ]; then
+            PROJECT_ARGS=(-workspace "$IOS_BUILD_PATH/Unity-iPhone.xcworkspace")
+          fi
+          xcodebuild "${PROJECT_ARGS[@]}" \
+            -scheme Unity-iPhone \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/xcode-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build/logs/xcodebuild.log
+      - name: Package unsigned IPA
+        script: |
+          set -euo pipefail
+          APP_PATH=$(find build/xcode-derived/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "No device .app found. Check xcodebuild.log."
+            exit 1
+          fi
+          PAYLOAD_DIR=$(mktemp -d "$CM_BUILD_DIR/build/ipa-payload.XXXXXX")
+          mkdir -p "$PAYLOAD_DIR/Payload" "$(dirname "$IPA_OUTPUT_PATH")"
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/Payload/"
+          (cd "$PAYLOAD_DIR" && zip -qry "$CM_BUILD_DIR/$IPA_OUTPUT_PATH" Payload)
+    artifacts:
+      - build/ios-unsigned/*.ipa
+      - build/logs/*.log
