@@ -1,17 +1,13 @@
 workflows:
-  unity-ios-development:
-    name: Card iOS - client development signature
+  unity-ios-unsigned:
+    name: Card iOS - unsigned IPA for Sideloadly
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
       xcode: 16.2
-      ios_signing:
-        certificates:
-          - card_client_development
-        provisioning_profiles:
-          - card_client_profile
       vars:
         IOS_BUILD_PATH: build/ios
+        IPA_OUTPUT_PATH: build/ios-unsigned/Card-unsigned.ipa
     scripts:
       - name: Download Xcode export from Git LFS
         script: |
@@ -56,34 +52,35 @@ workflows:
           if [ -f "$IOS_BUILD_PATH/Podfile" ]; then
             (cd "$IOS_BUILD_PATH" && pod install) 2>&1 | tee build/logs/pods.log
           fi
-      - name: Apply client provisioning profile
+      - name: Build unsigned device app
         script: |
           set -euo pipefail
-          cd "$IOS_BUILD_PATH"
-          xcode-project use-profiles
-      - name: Build signed development IPA
-        script: |
-          set -euo pipefail
-          cd "$IOS_BUILD_PATH"
-          PROJECT_ARGS=(--project Unity-iPhone.xcodeproj)
-          if [ -d Unity-iPhone.xcworkspace ]; then
-            PROJECT_ARGS=(--workspace Unity-iPhone.xcworkspace)
+          PROJECT_ARGS=(-project "$IOS_BUILD_PATH/Unity-iPhone.xcodeproj")
+          if [ -d "$IOS_BUILD_PATH/Unity-iPhone.xcworkspace" ]; then
+            PROJECT_ARGS=(-workspace "$IOS_BUILD_PATH/Unity-iPhone.xcworkspace")
           fi
-          xcode-project build-ipa "${PROJECT_ARGS[@]}" --scheme Unity-iPhone 2>&1 | tee "$CM_BUILD_DIR/build/logs/xcode-signed.log"
-      - name: Verify and package signed artifact
+          xcodebuild "${PROJECT_ARGS[@]}" \
+            -scheme Unity-iPhone \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/xcode-derived \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build/logs/xcodebuild.log
+      - name: Package unsigned IPA
         script: |
           set -euo pipefail
-          IPA_PATH=$(find "$IOS_BUILD_PATH/build/ios/ipa" -name '*.ipa' -print -quit)
-          test -n "$IPA_PATH"
-          mkdir -p build/ios-signed
-          cp "$IPA_PATH" build/ios-signed/Card-development.ipa
-          VERIFY_DIR=$(mktemp -d "$CM_BUILD_DIR/build/signature-check.XXXXXX")
-          unzip -q build/ios-signed/Card-development.ipa -d "$VERIFY_DIR"
-          APP_PATH=$(find "$VERIFY_DIR/Payload" -maxdepth 1 -name '*.app' -print -quit)
-          test -f "$APP_PATH/embedded.mobileprovision"
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH" 2>&1 | tee build/logs/signature-verification.log
-          codesign --display --verbose=4 "$APP_PATH" 2>&1 | tee -a build/logs/signature-verification.log
+          APP_PATH=$(find build/xcode-derived/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "No device .app found. Check xcodebuild.log."
+            exit 1
+          fi
+          PAYLOAD_DIR=$(mktemp -d "$CM_BUILD_DIR/build/ipa-payload.XXXXXX")
+          mkdir -p "$PAYLOAD_DIR/Payload" "$(dirname "$IPA_OUTPUT_PATH")"
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/Payload/"
+          (cd "$PAYLOAD_DIR" && zip -qry "$CM_BUILD_DIR/$IPA_OUTPUT_PATH" Payload)
     artifacts:
-      - build/ios-signed/*.ipa
+      - build/ios-unsigned/*.ipa
       - build/logs/*.log
-      - /tmp/xcodebuild_logs/*.log
