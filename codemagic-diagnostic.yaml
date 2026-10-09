@@ -1,0 +1,102 @@
+workflows:
+  unity-ios-diagnostic:
+    name: Card iOS - startup diagnostic build 1
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: 16.2
+      ios_signing:
+        certificates:
+          - card_client_development
+        provisioning_profiles:
+          - card_client_profile
+      vars:
+        IOS_BUILD_PATH: build/ios
+    scripts:
+      - name: Download Xcode export from Git LFS
+        script: |
+          set -euo pipefail
+          git lfs pull --include="ios-export.zip"
+      - name: Unpack Windows Xcode export
+        script: |
+          set -euo pipefail
+          if [ ! -f ios-export.zip ]; then
+            echo "Missing ios-export.zip. Export in Windows Unity, then run tools/Prepare-IosUpload.ps1."
+            exit 1
+          fi
+          mkdir -p "$IOS_BUILD_PATH" build/logs
+          python3 - "$IOS_BUILD_PATH" <<'PY'
+          import pathlib, shutil, sys, zipfile
+          root = pathlib.Path(sys.argv[1]).resolve()
+          with zipfile.ZipFile('ios-export.zip') as archive:
+              for entry in archive.infolist():
+                  name = entry.filename.replace('\\', '/')
+                  relative = pathlib.PurePosixPath(name)
+                  if relative.is_absolute() or '..' in relative.parts:
+                      raise ValueError('Unsafe ZIP path: ' + name)
+                  target = root.joinpath(*relative.parts)
+                  if entry.is_dir() or name.endswith('/'):
+                      target.mkdir(parents=True, exist_ok=True)
+                  else:
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      with archive.open(entry) as source, target.open('wb') as output:
+                          shutil.copyfileobj(source, output)
+          PY
+          test -f "$IOS_BUILD_PATH/Unity-iPhone.xcodeproj/project.pbxproj"
+          # Windows ZIP files do not preserve executable permissions.
+          find "$IOS_BUILD_PATH" -type f -name '*.sh' -exec chmod +x {} +
+          for TOOL_DIR in "$IOS_BUILD_PATH"/Il2CppOutputProject/IL2CPP/build/deploy*; do
+            if [ -d "$TOOL_DIR" ]; then
+              find "$TOOL_DIR" -type f -exec chmod +x {} +
+            fi
+          done
+      - name: Prepare native startup diagnostics
+        script: |
+          set -euo pipefail
+          python3 Prepare-IosDiagnostic.py "$IOS_BUILD_PATH"
+      - name: Install native dependencies if present
+        script: |
+          set -euo pipefail
+          if [ -f "$IOS_BUILD_PATH/Podfile" ]; then
+            (cd "$IOS_BUILD_PATH" && pod install) 2>&1 | tee build/logs/pods.log
+          fi
+      - name: Apply client provisioning profile
+        script: |
+          set -euo pipefail
+          cd "$IOS_BUILD_PATH"
+          xcode-project use-profiles
+      - name: Build signed development IPA
+        script: |
+          set -euo pipefail
+          cd "$IOS_BUILD_PATH"
+          PROJECT_ARGS=(-project Unity-iPhone.xcodeproj)
+          if [ -d Unity-iPhone.xcworkspace ]; then
+            PROJECT_ARGS=(-workspace Unity-iPhone.xcworkspace)
+          fi
+          xcodebuild "${PROJECT_ARGS[@]}" \
+            -scheme Unity-iPhone -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$CM_BUILD_DIR/build/Card.xcarchive" \
+            archive 2>&1 | tee "$CM_BUILD_DIR/build/logs/xcode-signed.log"
+          xcodebuild -exportArchive \
+            -archivePath "$CM_BUILD_DIR/build/Card.xcarchive" \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist "$HOME/export_options.plist" \
+            2>&1 | tee "$CM_BUILD_DIR/build/logs/xcode-export.log"
+      - name: Verify and package signed artifact
+        script: |
+          set -euo pipefail
+          IPA_PATH=$(find "$IOS_BUILD_PATH/build/ios/ipa" -name '*.ipa' -print -quit)
+          test -n "$IPA_PATH"
+          mkdir -p build/ios-signed
+          cp "$IPA_PATH" build/ios-signed/Card-diagnostic.ipa
+          VERIFY_DIR=$(mktemp -d "$CM_BUILD_DIR/build/signature-check.XXXXXX")
+          unzip -q build/ios-signed/Card-diagnostic.ipa -d "$VERIFY_DIR"
+          APP_PATH=$(find "$VERIFY_DIR/Payload" -maxdepth 1 -name '*.app' -print -quit)
+          test -f "$APP_PATH/embedded.mobileprovision"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH" 2>&1 | tee build/logs/signature-verification.log
+          codesign --display --verbose=4 "$APP_PATH" 2>&1 | tee -a build/logs/signature-verification.log
+    artifacts:
+      - build/ios-signed/*.ipa
+      - build/logs/*.log
+      - /tmp/xcodebuild_logs/*.log
