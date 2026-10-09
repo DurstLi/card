@@ -65,11 +65,20 @@ workflows:
         script: |
           set -euo pipefail
           cd "$IOS_BUILD_PATH"
-          PROJECT_ARGS=(--project Unity-iPhone.xcodeproj)
+          PROJECT_ARGS=(-project Unity-iPhone.xcodeproj)
           if [ -d Unity-iPhone.xcworkspace ]; then
-            PROJECT_ARGS=(--workspace Unity-iPhone.xcworkspace)
+            PROJECT_ARGS=(-workspace Unity-iPhone.xcworkspace)
           fi
-          xcode-project build-ipa "${PROJECT_ARGS[@]}" --scheme Unity-iPhone 2>&1 | tee "$CM_BUILD_DIR/build/logs/xcode-signed.log"
+          xcodebuild "${PROJECT_ARGS[@]}" \
+            -scheme Unity-iPhone -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$CM_BUILD_DIR/build/Card.xcarchive" \
+            archive 2>&1 | tee "$CM_BUILD_DIR/build/logs/xcode-signed.log"
+          xcodebuild -exportArchive \
+            -archivePath "$CM_BUILD_DIR/build/Card.xcarchive" \
+            -exportPath build/ios/ipa \
+            -exportOptionsPlist "$HOME/export_options.plist" \
+            2>&1 | tee "$CM_BUILD_DIR/build/logs/xcode-export.log"
       - name: Verify and package signed artifact
         script: |
           set -euo pipefail
