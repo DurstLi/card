@@ -13,10 +13,10 @@ workflows:
       vars:
         IOS_BUILD_PATH: build/ios
     scripts:
-      - name: Download Xcode export from Git LFS
+      - name: Restore and verify Xcode export from Git parts
         script: |
           set -euo pipefail
-          git lfs pull --include="ios-export.zip"
+          python3 IosExportArchive.py restore .
       - name: Unpack Windows Xcode export
         script: |
           set -euo pipefail
@@ -97,7 +97,7 @@ workflows:
       - build/logs/*.log
       - /tmp/xcodebuild_logs/*.log
   unity-ios-diagnostic:
-    name: Card iOS - startup diagnostic build 1
+    name: Card iOS - startup diagnostic build 2
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
@@ -110,10 +110,10 @@ workflows:
       vars:
         IOS_BUILD_PATH: build/ios
     scripts:
-      - name: Download Xcode export from Git LFS
+      - name: Restore and verify Xcode export from Git parts
         script: |
           set -euo pipefail
-          git lfs pull --include="ios-export.zip"
+          python3 IosExportArchive.py restore .
       - name: Unpack Windows Xcode export
         script: |
           set -euo pipefail

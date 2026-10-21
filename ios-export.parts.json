@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "size": 638215001,
+  "sha256": "387f78555b3cc57a81cc82c9d7985814b42086b93f22780a4bc8eecf19fdb2ee",
+  "parts": [
+    {
+      "name": "ios-export.zip.part001",
+      "size": 94371840,
+      "sha256": "3e1d3fd7e572ec733697564656aa6826d2ca6874136779ccb8f2559c98b7e1ab"
+    },
+    {
+      "name": "ios-export.zip.part002",
+      "size": 94371840,
+      "sha256": "9ede1bc2aacae157f94413ad4a62e91e630e4eec7b5bc55cd494222a9b0ee6e9"
+    },
+    {
+      "name": "ios-export.zip.part003",
+      "size": 94371840,
+      "sha256": "39c41f4ece2358bb84b28735ee834da4fa17bcbf1e3b3677679c6f47e2fe3072"
+    },
+    {
+      "name": "ios-export.zip.part004",
+      "size": 94371840,
+      "sha256": "6e7a4c1d27a868719254ab8aa1fed3a133f748a4db162bb995676703c909943f"
+    },
+    {
+      "name": "ios-export.zip.part005",
+      "size": 94371840,
+      "sha256": "b1cd66c6fe48df49fc9b3e48745e9ec7b53f28ff077ff876b43f7a94db824709"
+    },
+    {
+      "name": "ios-export.zip.part006",
+      "size": 94371840,
+      "sha256": "d93cf675d19bd85f0451b1541468af98bbb2ccf3e047fde2f8f66247ccd17275"
+    },
+    {
+      "name": "ios-export.zip.part007",
+      "size": 71983961,
+      "sha256": "a3b2b32361a507ed8f3c2b35aed3ed3e4122f54159af2b8821135a0bdd4603c3"
+    }
+  ]
+}
